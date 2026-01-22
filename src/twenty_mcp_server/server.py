@@ -118,14 +118,6 @@ def main():
 
     args = parser.parse_args()
 
-    if not initialize_server():
-        logger.error("Failed to initialize server, exiting")
-        return
-
-    if not register_tools():
-        logger.error("Failed to register tools, exiting")
-        return
-
     transport = args.transport
     logger.info(f"Starting server with transport: {transport}")
 
@@ -135,6 +127,13 @@ def main():
         mcp.run(transport="sse", host=args.host, port=args.port)
     elif transport in ["http", "streamable-http"]:
         mcp.run(transport="streamable-http", host=args.host, port=args.port)
+
+
+# Initialize server and register tools at module import time for FastMCP Cloud
+if initialize_server():
+    register_tools()
+else:
+    logger.warning("Server initialization failed - tools not registered")
 
 
 if __name__ == "__main__":
