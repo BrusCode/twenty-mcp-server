@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List
 import httpx
 from datetime import datetime, timedelta
 
-from .config import Workspace, Config
+from twenty_mcp_server.config import Workspace, Config
 
 logger = logging.getLogger(__name__)
 

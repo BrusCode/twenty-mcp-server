@@ -5,7 +5,7 @@ Notes tools for Twenty MCP Server
 import logging
 from typing import Optional
 from fastmcp import FastMCP
-from ..client import TwentyClientManager, TwentyAPIError
+from twenty_mcp_server.client import TwentyClientManager, TwentyAPIError
 
 logger = logging.getLogger(__name__)
 

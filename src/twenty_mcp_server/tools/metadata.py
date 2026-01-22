@@ -6,7 +6,7 @@ Provides schema and workspace information
 import logging
 from typing import Optional
 from fastmcp import FastMCP
-from ..client import TwentyClientManager, TwentyAPIError
+from twenty_mcp_server.client import TwentyClientManager, TwentyAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ def register_metadata_tools(mcp: FastMCP, client_manager: TwentyClientManager):
         except TwentyAPIError as e:
             return {"error": f"Failed to get fields: {e.message}"}
         except Exception as e:
-            return {"error": f"Unexpected error: {str(e)}"
+            return {"error": f"Unexpected error: {str(e)}"}
 
 
 def register_metadata_resources(mcp: FastMCP, client_manager: TwentyClientManager):

@@ -7,8 +7,8 @@ import logging
 import argparse
 from typing import Optional
 from fastmcp import FastMCP
-from .config import Config
-from .client import TwentyClientManager, TwentyAPIError
+from twenty_mcp_server.config import Config
+from twenty_mcp_server.client import TwentyClientManager, TwentyAPIError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,15 +42,15 @@ def initialize_server():
 def register_tools():
     """Register all MCP tools and resources"""
     try:
-        from .tools.people import register_people_tools, register_people_resources
-        from .tools.companies import register_companies_tools, register_companies_resources
-        from .tools.opportunities import (
+        from twenty_mcp_server.tools.people import register_people_tools, register_people_resources
+        from twenty_mcp_server.tools.companies import register_companies_tools, register_companies_resources
+        from twenty_mcp_server.tools.opportunities import (
             register_opportunities_tools,
             register_opportunities_resources,
         )
-        from .tools.notes import register_notes_tools
-        from .tools.tasks import register_tasks_tools
-        from .tools.metadata import register_metadata_tools, register_metadata_resources
+        from twenty_mcp_server.tools.notes import register_notes_tools
+        from twenty_mcp_server.tools.tasks import register_tasks_tools
+        from twenty_mcp_server.tools.metadata import register_metadata_tools, register_metadata_resources
 
         register_people_tools(mcp, client_manager)
         register_people_resources(mcp, client_manager)
