@@ -6,7 +6,7 @@ Provides schema and workspace information
 import logging
 from typing import Optional
 from fastmcp import FastMCP
-from twenty_mcp_server.client import TwentyClientManager, TwentyAPIError
+from twenty_mcp_server.graphql_client import TwentyClientManager, TwentyAPIError
 
 logger = logging.getLogger(__name__)
 

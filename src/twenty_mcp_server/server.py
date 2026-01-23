@@ -8,7 +8,7 @@ import argparse
 from typing import Optional
 from fastmcp import FastMCP
 from twenty_mcp_server.config import Config
-from twenty_mcp_server.client import TwentyClientManager, TwentyAPIError
+from twenty_mcp_server.graphql_client import TwentyClientManager, TwentyAPIError
 
 logging.basicConfig(
     level=logging.INFO,
