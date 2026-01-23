@@ -35,19 +35,19 @@ def register_opportunities_tools(mcp: FastMCP, client_manager: TwentyClientManag
     @mcp.tool()
     async def get_opportunities(
         limit: int = 20,
-        offset: int = 0,
+        after: Optional[str] = None,
         workspace: Optional[str] = None,
     ) -> dict:
-        """List all opportunities from Twenty CRM with pagination
+        """List all opportunities from Twenty CRM with cursor-based pagination
 
         Args:
             limit: Maximum number of records to return (default: 20)
-            offset: Number of records to skip (default: 0)
+            after: Cursor for pagination - use endCursor from previous response (optional)
             workspace: Workspace name (uses default if not specified)
         """
         try:
             client = client_manager.get_client(workspace)
-            result = await client.get_records("opportunities", limit=limit, offset=offset)
+            result = await client.get_records("opportunities", limit=limit, after=after)
             return {"success": True, "opportunities": result}
         except TwentyAPIError as e:
             return {"error": f"Failed to get opportunities: {e.message}"}
@@ -138,7 +138,7 @@ def register_opportunities_tools(mcp: FastMCP, client_manager: TwentyClientManag
         """Basic text search for opportunities in Twenty CRM
 
         Args:
-            query: Search text (searches across all fields)
+            query: Search text (searches in name field)
             limit: Maximum number of results (default: 20)
             workspace: Workspace name (uses default if not specified)
         """
@@ -156,7 +156,7 @@ def register_opportunities_tools(mcp: FastMCP, client_manager: TwentyClientManag
         filters: list,
         limit: int = 20,
         order_by: Optional[str] = None,
-        order_direction: str = "ASC",
+        order_direction: str = "AscNullsFirst",
         workspace: Optional[str] = None,
     ) -> dict:
         """Advanced search for opportunities with complex filters
@@ -167,7 +167,7 @@ def register_opportunities_tools(mcp: FastMCP, client_manager: TwentyClientManag
                 Operators: eq, neq, like, ilike, gt, gte, lt, lte, in, isNull, isNotNull
             limit: Maximum number of results (default: 20)
             order_by: Field to order by (optional)
-            order_direction: Order direction: ASC or DESC (default: ASC)
+            order_direction: Order direction: AscNullsFirst, AscNullsLast, DescNullsFirst, DescNullsLast (default: AscNullsFirst)
             workspace: Workspace name (uses default if not specified)
 
         Example:
@@ -202,12 +202,13 @@ def register_opportunities_resources(mcp: FastMCP, client_manager: TwentyClientM
             client = client_manager.get_client()
             result = await client.get_records("opportunities", limit=100)
 
-            opportunities = result.get("data", {}).get("opportunities", [])
-            if not opportunities:
+            edges = result.get("edges", [])
+            if not edges:
                 return "No opportunities found in the workspace."
 
-            formatted = f"Opportunities Directory ({len(opportunities)} records):\n\n"
-            for opp in opportunities:
+            formatted = f"Opportunities Directory ({len(edges)} records):\n\n"
+            for edge in edges:
+                opp = edge.get("node", {})
                 name = opp.get("name", "Unknown")
                 stage = opp.get("stage") or "No stage"
                 amount = opp.get("amount") or 0
@@ -226,26 +227,23 @@ def register_opportunities_resources(mcp: FastMCP, client_manager: TwentyClientM
             client = client_manager.get_client()
             result = await client.get_record("opportunities", id)
 
-            opportunity = (
-                result.get("data", {}).get("findOpportunity", result.get("data", {}))
-            )
-            if not opportunity:
+            if not result:
                 return f"Opportunity {id} not found."
 
-            name = opportunity.get("name", "Unknown")
+            name = result.get("name", "Unknown")
 
             formatted = f"Opportunity Profile - {name}\n"
-            formatted += f"ID: {opportunity.get('id', 'Unknown')}\n"
-            formatted += f"Stage: {opportunity.get('stage') or 'Not specified'}\n"
+            formatted += f"ID: {result.get('id', 'Unknown')}\n"
+            formatted += f"Stage: {result.get('stage') or 'Not specified'}\n"
             formatted += (
-                f"Amount: {opportunity.get('amount', 0)} {opportunity.get('currency', 'USD')}\n"
+                f"Amount: {result.get('amount', 0)} {result.get('currency', 'USD')}\n"
             )
-            formatted += f"Probability: {opportunity.get('probability', 'Not specified')}%\n"
-            formatted += f"Expected Close: {opportunity.get('expectedCloseDate', 'Not specified')}\n"
-            formatted += f"Created: {opportunity.get('createdAt', 'Unknown')}\n"
+            formatted += f"Probability: {result.get('probability', 'Not specified')}%\n"
+            formatted += f"Expected Close: {result.get('expectedCloseDate', 'Not specified')}\n"
+            formatted += f"Created: {result.get('createdAt', 'Unknown')}\n"
 
-            if opportunity.get("company"):
-                formatted += f"\nCompany: {opportunity['company'].get('name', 'Unknown')}\n"
+            if result.get("company"):
+                formatted += f"\nCompany: {result['company'].get('name', 'Unknown')}\n"
 
             return formatted
         except Exception as e:

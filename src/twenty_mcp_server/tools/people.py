@@ -35,19 +35,19 @@ def register_people_tools(mcp: FastMCP, client_manager: TwentyClientManager):
     @mcp.tool()
     async def get_people(
         limit: int = 20,
-        offset: int = 0,
+        after: Optional[str] = None,
         workspace: Optional[str] = None,
     ) -> dict:
-        """List all people from Twenty CRM with pagination
+        """List all people from Twenty CRM with cursor-based pagination
 
         Args:
             limit: Maximum number of records to return (default: 20)
-            offset: Number of records to skip (default: 0)
+            after: Cursor for pagination - use endCursor from previous response (optional)
             workspace: Workspace name (uses default if not specified)
         """
         try:
             client = client_manager.get_client(workspace)
-            result = await client.get_records("people", limit=limit, offset=offset)
+            result = await client.get_records("people", limit=limit, after=after)
             return {"success": True, "people": result}
         except TwentyAPIError as e:
             return {"error": f"Failed to get people: {e.message}"}
@@ -61,13 +61,15 @@ def register_people_tools(mcp: FastMCP, client_manager: TwentyClientManager):
         """Create a new person in Twenty CRM
 
         Args:
-            data: Person data (e.g., firstName, lastName, email, phone, city, etc.)
+            data: Person data (e.g., name, email, phone, city, etc.)
             workspace: Workspace name (uses default if not specified)
 
         Example:
             {
-                "firstName": "John",
-                "lastName": "Doe",
+                "name": {
+                    "firstName": "John",
+                    "lastName": "Doe"
+                },
                 "email": "john.doe@example.com",
                 "phone": "+1 555-1234",
                 "city": "New York"
@@ -138,7 +140,7 @@ def register_people_tools(mcp: FastMCP, client_manager: TwentyClientManager):
         """Basic text search for people in Twenty CRM
 
         Args:
-            query: Search text (searches across all fields)
+            query: Search text (searches in name field)
             limit: Maximum number of results (default: 20)
             workspace: Workspace name (uses default if not specified)
         """
@@ -156,7 +158,7 @@ def register_people_tools(mcp: FastMCP, client_manager: TwentyClientManager):
         filters: list,
         limit: int = 20,
         order_by: Optional[str] = None,
-        order_direction: str = "ASC",
+        order_direction: str = "AscNullsFirst",
         workspace: Optional[str] = None,
     ) -> dict:
         """Advanced search for people with complex filters
@@ -167,7 +169,7 @@ def register_people_tools(mcp: FastMCP, client_manager: TwentyClientManager):
                 Operators: eq, neq, like, ilike, gt, gte, lt, lte, in, isNull, isNotNull
             limit: Maximum number of results (default: 20)
             order_by: Field to order by (optional)
-            order_direction: Order direction: ASC or DESC (default: ASC)
+            order_direction: Order direction: AscNullsFirst, AscNullsLast, DescNullsFirst, DescNullsLast (default: AscNullsFirst)
             workspace: Workspace name (uses default if not specified)
 
         Example:
@@ -198,24 +200,26 @@ def register_people_resources(mcp: FastMCP, client_manager: TwentyClientManager)
             client = client_manager.get_client()
             result = await client.get_records("people", limit=100)
 
-            people = result.get("data", {}).get("people", [])
-            if not people:
+            edges = result.get("edges", [])
+            if not edges:
                 return "No people found in the workspace."
 
-            formatted = f"People Directory ({len(people)} records):\n\n"
-            for person in people:
-                name = " ".join(
+            formatted = f"People Directory ({len(edges)} records):\n\n"
+            for edge in edges:
+                person = edge.get("node", {})
+                name = person.get("name", {})
+                full_name = " ".join(
                     filter(
                         None,
                         [
-                            person.get("firstName"),
-                            person.get("lastName"),
+                            name.get("firstName") if isinstance(name, dict) else "",
+                            name.get("lastName") if isinstance(name, dict) else "",
                         ],
                     )
-                )
+                ) or "Unknown"
                 email = person.get("email") or person.get("primaryEmail") or "No email"
                 city = person.get("city") or "No city"
-                formatted += f"• {name} ({email})\n"
+                formatted += f"• {full_name} ({email})\n"
                 formatted += f"  ID: {person.get('id', 'Unknown')}, City: {city}\n\n"
 
             return formatted.strip()
@@ -229,23 +233,26 @@ def register_people_resources(mcp: FastMCP, client_manager: TwentyClientManager)
             client = client_manager.get_client()
             result = await client.get_record("people", id)
 
-            person = result.get("data", {}).get("findPerson", result.get("data", {}))
-            if not person:
+            if not result:
                 return f"Person {id} not found."
 
-            name = " ".join(
-                filter(None, [person.get("firstName"), person.get("lastName")])
-            )
+            name = result.get("name", {})
+            full_name = " ".join(
+                filter(None, [
+                    name.get("firstName") if isinstance(name, dict) else "",
+                    name.get("lastName") if isinstance(name, dict) else ""
+                ])
+            ) or "Unknown"
 
-            formatted = f"Person Profile - {name}\n"
-            formatted += f"ID: {person.get('id', 'Unknown')}\n"
-            formatted += f"Email: {person.get('email') or person.get('primaryEmail') or 'Not specified'}\n"
-            formatted += f"Phone: {person.get('phone') or 'Not specified'}\n"
-            formatted += f"City: {person.get('city') or 'Not specified'}\n"
-            formatted += f"Created: {person.get('createdAt', 'Unknown')}\n"
+            formatted = f"Person Profile - {full_name}\n"
+            formatted += f"ID: {result.get('id', 'Unknown')}\n"
+            formatted += f"Email: {result.get('email') or result.get('primaryEmail') or 'Not specified'}\n"
+            formatted += f"Phone: {result.get('phone') or 'Not specified'}\n"
+            formatted += f"City: {result.get('city') or 'Not specified'}\n"
+            formatted += f"Created: {result.get('createdAt', 'Unknown')}\n"
 
-            if person.get("company"):
-                formatted += f"\nCompany: {person['company'].get('name', 'Unknown')}\n"
+            if result.get("company"):
+                formatted += f"\nCompany: {result['company'].get('name', 'Unknown')}\n"
 
             return formatted
         except Exception as e:

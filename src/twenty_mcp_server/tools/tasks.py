@@ -35,19 +35,19 @@ def register_tasks_tools(mcp: FastMCP, client_manager: TwentyClientManager):
     @mcp.tool()
     async def get_tasks(
         limit: int = 20,
-        offset: int = 0,
+        after: Optional[str] = None,
         workspace: Optional[str] = None,
     ) -> dict:
-        """List all tasks from Twenty CRM with pagination
+        """List all tasks from Twenty CRM with cursor-based pagination
 
         Args:
             limit: Maximum number of records to return (default: 20)
-            offset: Number of records to skip (default: 0)
+            after: Cursor for pagination - use endCursor from previous response (optional)
             workspace: Workspace name (uses default if not specified)
         """
         try:
             client = client_manager.get_client(workspace)
-            result = await client.get_records("tasks", limit=limit, offset=offset)
+            result = await client.get_records("tasks", limit=limit, after=after)
             return {"success": True, "tasks": result}
         except TwentyAPIError as e:
             return {"error": f"Failed to get tasks: {e.message}"}
@@ -125,5 +125,27 @@ def register_tasks_tools(mcp: FastMCP, client_manager: TwentyClientManager):
             return {"success": True, "message": f"Task {id} deleted successfully"}
         except TwentyAPIError as e:
             return {"error": f"Failed to delete task: {e.message}"}
+        except Exception as e:
+            return {"error": f"Unexpected error: {str(e)}"}
+
+    @mcp.tool()
+    async def search_tasks_basic(
+        query: str,
+        limit: int = 20,
+        workspace: Optional[str] = None,
+    ) -> dict:
+        """Basic text search for tasks in Twenty CRM
+
+        Args:
+            query: Search text (searches in title field)
+            limit: Maximum number of results (default: 20)
+            workspace: Workspace name (uses default if not specified)
+        """
+        try:
+            client = client_manager.get_client(workspace)
+            result = await client.search_records("tasks", query, limit=limit)
+            return {"success": True, "results": result}
+        except TwentyAPIError as e:
+            return {"error": f"Failed to search tasks: {e.message}"}
         except Exception as e:
             return {"error": f"Unexpected error: {str(e)}"}

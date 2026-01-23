@@ -35,19 +35,19 @@ def register_companies_tools(mcp: FastMCP, client_manager: TwentyClientManager):
     @mcp.tool()
     async def get_companies(
         limit: int = 20,
-        offset: int = 0,
+        after: Optional[str] = None,
         workspace: Optional[str] = None,
     ) -> dict:
-        """List all companies from Twenty CRM with pagination
+        """List all companies from Twenty CRM with cursor-based pagination
 
         Args:
             limit: Maximum number of records to return (default: 20)
-            offset: Number of records to skip (default: 0)
+            after: Cursor for pagination - use endCursor from previous response (optional)
             workspace: Workspace name (uses default if not specified)
         """
         try:
             client = client_manager.get_client(workspace)
-            result = await client.get_records("companies", limit=limit, offset=offset)
+            result = await client.get_records("companies", limit=limit, after=after)
             return {"success": True, "companies": result}
         except TwentyAPIError as e:
             return {"error": f"Failed to get companies: {e.message}"}
@@ -141,7 +141,7 @@ def register_companies_tools(mcp: FastMCP, client_manager: TwentyClientManager):
         """Basic text search for companies in Twenty CRM
 
         Args:
-            query: Search text (searches across all fields)
+            query: Search text (searches in name field)
             limit: Maximum number of results (default: 20)
             workspace: Workspace name (uses default if not specified)
         """
@@ -159,7 +159,7 @@ def register_companies_tools(mcp: FastMCP, client_manager: TwentyClientManager):
         filters: list,
         limit: int = 20,
         order_by: Optional[str] = None,
-        order_direction: str = "ASC",
+        order_direction: str = "AscNullsFirst",
         workspace: Optional[str] = None,
     ) -> dict:
         """Advanced search for companies with complex filters
@@ -170,7 +170,7 @@ def register_companies_tools(mcp: FastMCP, client_manager: TwentyClientManager):
                 Operators: eq, neq, like, ilike, gt, gte, lt, lte, in, isNull, isNotNull
             limit: Maximum number of results (default: 20)
             order_by: Field to order by (optional)
-            order_direction: Order direction: ASC or DESC (default: ASC)
+            order_direction: Order direction: AscNullsFirst, AscNullsLast, DescNullsFirst, DescNullsLast (default: AscNullsFirst)
             workspace: Workspace name (uses default if not specified)
 
         Example:
@@ -205,12 +205,13 @@ def register_companies_resources(mcp: FastMCP, client_manager: TwentyClientManag
             client = client_manager.get_client()
             result = await client.get_records("companies", limit=100)
 
-            companies = result.get("data", {}).get("companies", [])
-            if not companies:
+            edges = result.get("edges", [])
+            if not edges:
                 return "No companies found in the workspace."
 
-            formatted = f"Companies Directory ({len(companies)} records):\n\n"
-            for company in companies:
+            formatted = f"Companies Directory ({len(edges)} records):\n\n"
+            for edge in edges:
+                company = edge.get("node", {})
                 name = company.get("name", "Unknown")
                 domain = company.get("domainName") or "No domain"
                 city = company.get("city") or "No city"
@@ -228,18 +229,17 @@ def register_companies_resources(mcp: FastMCP, client_manager: TwentyClientManag
             client = client_manager.get_client()
             result = await client.get_record("companies", id)
 
-            company = result.get("data", {}).get("findCompany", result.get("data", {}))
-            if not company:
+            if not result:
                 return f"Company {id} not found."
 
-            name = company.get("name", "Unknown")
+            name = result.get("name", "Unknown")
 
             formatted = f"Company Profile - {name}\n"
-            formatted += f"ID: {company.get('id', 'Unknown')}\n"
-            formatted += f"Domain: {company.get('domainName') or 'Not specified'}\n"
-            formatted += f"City: {company.get('city') or 'Not specified'}\n"
-            formatted += f"Employees: {company.get('employees', 'Not specified')}\n"
-            formatted += f"Created: {company.get('createdAt', 'Unknown')}\n"
+            formatted += f"ID: {result.get('id', 'Unknown')}\n"
+            formatted += f"Domain: {result.get('domainName') or 'Not specified'}\n"
+            formatted += f"City: {result.get('city') or 'Not specified'}\n"
+            formatted += f"Employees: {result.get('employees', 'Not specified')}\n"
+            formatted += f"Created: {result.get('createdAt', 'Unknown')}\n"
 
             return formatted
         except Exception as e:
