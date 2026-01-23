@@ -37,7 +37,7 @@ def register_metadata_tools(mcp: FastMCP, client_manager: TwentyClientManager):
         """Get schema for a specific object in Twenty CRM
 
         Args:
-            object_name: Name of the object (e.g., people, companies, opportunities)
+            object_name: Name of the object (e.g., person, company, opportunity)
             workspace: Workspace name (uses default if not specified)
         """
         try:
@@ -56,7 +56,7 @@ def register_metadata_tools(mcp: FastMCP, client_manager: TwentyClientManager):
         """Get fields for a specific object in Twenty CRM
 
         Args:
-            object_name: Name of the object (e.g., people, companies, opportunities)
+            object_name: Name of the object (e.g., person, company, opportunity)
             workspace: Workspace name (uses default if not specified)
         """
         try:
@@ -79,16 +79,21 @@ def register_metadata_resources(mcp: FastMCP, client_manager: TwentyClientManage
             client = client_manager.get_client()
             result = await client.get_objects()
 
-            objects = result.get("data", {}).get("objects", [])
-            if not objects:
+            edges = result.get("edges", [])
+            if not edges:
                 return "No objects found in the workspace."
 
-            formatted = f"Workspace Schema - Objects ({len(objects)} total):\n\n"
-            for obj in objects:
+            formatted = f"Workspace Schema - Objects ({len(edges)} total):\n\n"
+            for edge in edges:
+                obj = edge.get("node", {})
                 name = obj.get("nameSingular", "Unknown")
                 label = obj.get("labelSingular", "Unknown")
                 description = obj.get("description", "No description")
-                formatted += f"• {name} ({label})\n"
+                is_custom = obj.get("isCustom", False)
+                formatted += f"• {name} ({label})"
+                if is_custom:
+                    formatted += " [Custom]"
+                formatted += "\n"
                 formatted += f"  Plural: {obj.get('namePlural', 'Unknown')}\n"
                 formatted += f"  Description: {description}\n\n"
 

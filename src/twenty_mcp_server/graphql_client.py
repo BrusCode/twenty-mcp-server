@@ -84,32 +84,146 @@ class TwentyGraphQLClient:
         """Execute a GraphQL mutation"""
         return await self.execute_query(mutation, variables)
 
+    def _build_filter_string(self, filter_condition: Optional[Dict[str, Any]]) -> str:
+        """Build GraphQL filter string from filter condition"""
+        if not filter_condition:
+            return ""
+        
+        # Convert Python dict to GraphQL filter format
+        def convert_value(v: Any) -> str:
+            if isinstance(v, str):
+                return f'"{v}"'
+            elif isinstance(v, bool):
+                return str(v).lower()
+            elif isinstance(v, (int, float)):
+                return str(v)
+            elif isinstance(v, dict):
+                items = [f"{k}: {convert_value(val)}" for k, val in v.items()]
+                return "{ " + ", ".join(items) + " }"
+            elif isinstance(v, list):
+                items = [convert_value(item) for item in v]
+                return "[" + ", ".join(items) + "]"
+            else:
+                return str(v)
+        
+        return convert_value(filter_condition)
+
     # Core API Operations
 
     async def get_records(
         self,
         object_name: str,
         limit: int = 20,
+        after: Optional[str] = None,
         filter_condition: Optional[Dict[str, Any]] = None,
+        order_by: Optional[str] = None,
+        order_direction: str = "AscNullsFirst",
     ) -> Dict[str, Any]:
-        """Get multiple records with pagination"""
-        filter_str = ""
+        """Get multiple records with cursor-based pagination
+        
+        Args:
+            object_name: Name of the object (e.g., 'people', 'companies')
+            limit: Maximum number of records to return (default: 20)
+            after: Cursor for pagination (optional)
+            filter_condition: Filter conditions (optional)
+            order_by: Field to order by (optional)
+            order_direction: Order direction - AscNullsFirst, AscNullsLast, DescNullsFirst, DescNullsLast
+        """
+        # Build query arguments
+        args = [f"first: {limit}"]
+        
+        if after:
+            args.append(f'after: "{after}"')
+        
         if filter_condition:
-            filter_str = f", filter: {json.dumps(filter_condition)}"
+            filter_str = self._build_filter_string(filter_condition)
+            args.append(f"filter: {filter_str}")
+        
+        if order_by:
+            # Twenty CRM uses orderBy with field and direction
+            args.append(f'orderBy: {{ {order_by}: {order_direction} }}')
+        
+        args_str = ", ".join(args)
 
         query = f"""
         query {{
-          {object_name}(first: {limit}{filter_str}) {{
+          {object_name}({args_str}) {{
             edges {{
               node {{
                 id
                 __typename
               }}
+              cursor
             }}
             pageInfo {{
               hasNextPage
+              hasPreviousPage
+              startCursor
               endCursor
             }}
+            totalCount
+          }}
+        }}
+        """
+
+        result = await self.execute_query(query)
+        return result.get(object_name, {})
+
+    async def get_records_with_fields(
+        self,
+        object_name: str,
+        fields: List[str],
+        limit: int = 20,
+        after: Optional[str] = None,
+        filter_condition: Optional[Dict[str, Any]] = None,
+        order_by: Optional[str] = None,
+        order_direction: str = "AscNullsFirst",
+    ) -> Dict[str, Any]:
+        """Get multiple records with specific fields
+        
+        Args:
+            object_name: Name of the object (e.g., 'people', 'companies')
+            fields: List of field names to retrieve
+            limit: Maximum number of records to return (default: 20)
+            after: Cursor for pagination (optional)
+            filter_condition: Filter conditions (optional)
+            order_by: Field to order by (optional)
+            order_direction: Order direction
+        """
+        # Build query arguments
+        args = [f"first: {limit}"]
+        
+        if after:
+            args.append(f'after: "{after}"')
+        
+        if filter_condition:
+            filter_str = self._build_filter_string(filter_condition)
+            args.append(f"filter: {filter_str}")
+        
+        if order_by:
+            args.append(f'orderBy: {{ {order_by}: {order_direction} }}')
+        
+        args_str = ", ".join(args)
+        fields_str = "\n                ".join(fields)
+
+        query = f"""
+        query {{
+          {object_name}({args_str}) {{
+            edges {{
+              node {{
+                id
+                __typename
+                {fields_str}
+              }}
+              cursor
+            }}
+            pageInfo {{
+              hasNextPage
+              hasPreviousPage
+              startCursor
+              endCursor
+            }}
+            totalCount
           }}
         }}
         """
@@ -119,30 +233,66 @@ class TwentyGraphQLClient:
 
     async def get_record(self, object_name: str, record_id: str) -> Dict[str, Any]:
         """Get a single record by ID"""
-        # GraphQL singular query
-        singular_name = object_name.rstrip("s")  # Simple pluralization
+        # GraphQL singular query - Twenty uses the singular form
+        singular_name = self._get_singular_name(object_name)
+        
         query = f"""
         query {{
-          {singular_name}(id: "{record_id}") {{
-            id
-            __typename
+          {singular_name}(filter: {{ id: {{ eq: "{record_id}" }} }}) {{
+            edges {{
+              node {{
+                id
+                __typename
+              }}
+            }}
           }}
         }}
         """
 
         result = await self.execute_query(query)
-        return result.get(singular_name, {})
+        
+        # Extract the first record from edges
+        edges = result.get(singular_name, {}).get("edges", [])
+        if edges:
+            return edges[0].get("node", {})
+        return {}
+
+    def _get_singular_name(self, object_name: str) -> str:
+        """Get singular name for an object (handles special cases)"""
+        # Special cases for Twenty CRM objects
+        special_cases = {
+            "people": "people",  # Twenty uses 'people' for both
+            "companies": "companies",
+            "opportunities": "opportunities",
+            "notes": "notes",
+            "tasks": "tasks",
+        }
+        return special_cases.get(object_name, object_name)
+
+    def _get_mutation_name(self, object_name: str) -> str:
+        """Get the correct mutation name for an object"""
+        # Twenty CRM mutation naming conventions
+        name_map = {
+            "people": "Person",
+            "companies": "Company",
+            "opportunities": "Opportunity",
+            "notes": "Note",
+            "tasks": "Task",
+        }
+        return name_map.get(object_name, object_name.rstrip("s").capitalize())
 
     async def create_record(
         self, object_name: str, data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Create a new record"""
-        singular_name = object_name.rstrip("s")
-        capitalized = singular_name.capitalize()
+        mutation_name = self._get_mutation_name(object_name)
+
+        # Convert data to GraphQL input format
+        data_str = json.dumps(data)
 
         mutation = f"""
         mutation {{
-          create{capitalized}(data: {json.dumps(data)}) {{
+          create{mutation_name}(data: {data_str}) {{
             id
             __typename
           }}
@@ -150,18 +300,20 @@ class TwentyGraphQLClient:
         """
 
         result = await self.execute_mutation(mutation)
-        return result.get(f"create{capitalized}", {})
+        return result.get(f"create{mutation_name}", {})
 
     async def update_record(
         self, object_name: str, record_id: str, data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Update an existing record"""
-        singular_name = object_name.rstrip("s")
-        capitalized = singular_name.capitalize()
+        mutation_name = self._get_mutation_name(object_name)
+
+        # Convert data to GraphQL input format
+        data_str = json.dumps(data)
 
         mutation = f"""
         mutation {{
-          update{capitalized}(id: "{record_id}", data: {json.dumps(data)}) {{
+          update{mutation_name}(id: "{record_id}", data: {data_str}) {{
             id
             __typename
           }}
@@ -169,31 +321,62 @@ class TwentyGraphQLClient:
         """
 
         result = await self.execute_mutation(mutation)
-        return result.get(f"update{capitalized}", {})
+        return result.get(f"update{mutation_name}", {})
 
     async def delete_record(self, object_name: str, record_id: str) -> Dict[str, Any]:
-        """Delete a record"""
-        singular_name = object_name.rstrip("s")
-        capitalized = singular_name.capitalize()
+        """Delete a record (soft delete)"""
+        mutation_name = self._get_mutation_name(object_name)
 
         mutation = f"""
         mutation {{
-          delete{capitalized}(id: "{record_id}") {{
+          delete{mutation_name}(id: "{record_id}") {{
             id
           }}
         }}
         """
 
         result = await self.execute_mutation(mutation)
-        return result.get(f"delete{capitalized}", {})
+        return result.get(f"delete{mutation_name}", {})
 
     async def search_records(
-        self, object_name: str, search_query: str, limit: int = 20
+        self, 
+        object_name: str, 
+        search_query: str, 
+        limit: int = 20,
+        search_fields: Optional[List[str]] = None
     ) -> Dict[str, Any]:
-        """Basic text search for records"""
-        # GraphQL search with filter
-        filter_condition = {"name": {"contains": search_query}}
-        return await self.get_records(object_name, limit, filter_condition)
+        """Basic text search for records
+        
+        Args:
+            object_name: Name of the object to search
+            search_query: Search text
+            limit: Maximum number of results
+            search_fields: List of fields to search in (optional)
+        """
+        # Build filter based on object type and search query
+        if not search_query:
+            # If no search query, just return records
+            return await self.get_records(object_name, limit)
+        
+        # Default search fields based on object type
+        default_fields = {
+            "people": ["name"],
+            "companies": ["name"],
+            "opportunities": ["name"],
+            "notes": ["body"],
+            "tasks": ["title"],
+        }
+        
+        fields = search_fields or default_fields.get(object_name, ["name"])
+        
+        # Build OR filter for multiple fields
+        if len(fields) == 1:
+            filter_condition = {fields[0]: {"ilike": f"%{search_query}%"}}
+        else:
+            or_conditions = [{field: {"ilike": f"%{search_query}%"}} for field in fields]
+            filter_condition = {"or": or_conditions}
+        
+        return await self.get_records(object_name, limit, filter_condition=filter_condition)
 
     async def search_records_complex(
         self,
@@ -201,25 +384,71 @@ class TwentyGraphQLClient:
         filters: List[Dict[str, Any]],
         limit: int = 20,
         order_by: Optional[str] = None,
+        order_direction: str = "AscNullsFirst",
     ) -> Dict[str, Any]:
-        """Complex search with multiple filters"""
-        # Build GraphQL filter object
-        and_filters = {}
+        """Complex search with multiple filters
+        
+        Args:
+            object_name: Name of the object to search
+            filters: List of filter conditions, each with 'field', 'operator', 'value'
+            limit: Maximum number of results
+            order_by: Field to order by
+            order_direction: Order direction (AscNullsFirst, DescNullsFirst, etc.)
+        """
+        # Build GraphQL filter object from filters list
+        filter_conditions = []
+        
         for f in filters:
             field = f.get("field")
             operator = f.get("operator", "eq")
             value = f.get("value")
-
-            if operator == "eq":
-                and_filters[field] = {"eq": value}
-            elif operator == "contains":
-                and_filters[field] = {"contains": value}
-            elif operator == "gte":
-                and_filters[field] = {"gte": value}
-            elif operator == "lte":
-                and_filters[field] = {"lte": value}
-
-        return await self.get_records(object_name, limit, {"and": and_filters})
+            
+            if not field:
+                continue
+            
+            # Map operators to Twenty CRM GraphQL operators
+            operator_map = {
+                "eq": "eq",
+                "neq": "neq",
+                "like": "ilike",
+                "ilike": "ilike",
+                "gt": "gt",
+                "gte": "gte",
+                "lt": "lt",
+                "lte": "lte",
+                "in": "in",
+                "contains": "ilike",
+                "isNull": "is",
+                "isNotNull": "is",
+            }
+            
+            gql_operator = operator_map.get(operator, operator)
+            
+            # Handle special operators
+            if operator == "isNull":
+                filter_conditions.append({field: {"is": "NULL"}})
+            elif operator == "isNotNull":
+                filter_conditions.append({field: {"is": "NOT_NULL"}})
+            elif operator in ["like", "ilike", "contains"]:
+                filter_conditions.append({field: {gql_operator: f"%{value}%"}})
+            else:
+                filter_conditions.append({field: {gql_operator: value}})
+        
+        # Combine filters with AND
+        if len(filter_conditions) == 1:
+            filter_condition = filter_conditions[0]
+        elif len(filter_conditions) > 1:
+            filter_condition = {"and": filter_conditions}
+        else:
+            filter_condition = None
+        
+        return await self.get_records(
+            object_name, 
+            limit, 
+            filter_condition=filter_condition,
+            order_by=order_by,
+            order_direction=order_direction
+        )
 
     # Metadata API Operations
 
@@ -236,6 +465,8 @@ class TwentyGraphQLClient:
                 labelSingular
                 labelPlural
                 description
+                isCustom
+                isActive
               }
             }
           }
@@ -249,21 +480,29 @@ class TwentyGraphQLClient:
         """Get schema for a specific object"""
         query = f"""
         query {{
-          object(nameSingular: "{object_name}") {{
-            id
-            nameSingular
-            namePlural
-            labelSingular
-            labelPlural
-            description
-            fields {{
-              edges {{
-                node {{
-                  id
-                  name
-                  label
-                  type
-                  description
+          object(filter: {{ nameSingular: {{ eq: "{object_name}" }} }}) {{
+            edges {{
+              node {{
+                id
+                nameSingular
+                namePlural
+                labelSingular
+                labelPlural
+                description
+                isCustom
+                isActive
+                fields {{
+                  edges {{
+                    node {{
+                      id
+                      name
+                      label
+                      type
+                      description
+                      isCustom
+                      isActive
+                    }}
+                  }}
                 }}
               }}
             }}
@@ -272,7 +511,10 @@ class TwentyGraphQLClient:
         """
 
         result = await self.execute_query(query)
-        return result.get("object", {})
+        edges = result.get("object", {}).get("edges", [])
+        if edges:
+            return edges[0].get("node", {})
+        return {}
 
     async def get_fields(self, object_name: str) -> Dict[str, Any]:
         """Get fields for a specific object"""

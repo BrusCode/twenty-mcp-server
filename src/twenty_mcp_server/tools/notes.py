@@ -35,19 +35,19 @@ def register_notes_tools(mcp: FastMCP, client_manager: TwentyClientManager):
     @mcp.tool()
     async def get_notes(
         limit: int = 20,
-        offset: int = 0,
+        after: Optional[str] = None,
         workspace: Optional[str] = None,
     ) -> dict:
-        """List all notes from Twenty CRM with pagination
+        """List all notes from Twenty CRM with cursor-based pagination
 
         Args:
             limit: Maximum number of records to return (default: 20)
-            offset: Number of records to skip (default: 0)
+            after: Cursor for pagination - use endCursor from previous response (optional)
             workspace: Workspace name (uses default if not specified)
         """
         try:
             client = client_manager.get_client(workspace)
-            result = await client.get_records("notes", limit=limit, offset=offset)
+            result = await client.get_records("notes", limit=limit, after=after)
             return {"success": True, "notes": result}
         except TwentyAPIError as e:
             return {"error": f"Failed to get notes: {e.message}"}
@@ -123,5 +123,27 @@ def register_notes_tools(mcp: FastMCP, client_manager: TwentyClientManager):
             return {"success": True, "message": f"Note {id} deleted successfully"}
         except TwentyAPIError as e:
             return {"error": f"Failed to delete note: {e.message}"}
+        except Exception as e:
+            return {"error": f"Unexpected error: {str(e)}"}
+
+    @mcp.tool()
+    async def search_notes_basic(
+        query: str,
+        limit: int = 20,
+        workspace: Optional[str] = None,
+    ) -> dict:
+        """Basic text search for notes in Twenty CRM
+
+        Args:
+            query: Search text (searches in body field)
+            limit: Maximum number of results (default: 20)
+            workspace: Workspace name (uses default if not specified)
+        """
+        try:
+            client = client_manager.get_client(workspace)
+            result = await client.search_records("notes", query, limit=limit)
+            return {"success": True, "results": result}
+        except TwentyAPIError as e:
+            return {"error": f"Failed to search notes: {e.message}"}
         except Exception as e:
             return {"error": f"Unexpected error: {str(e)}"}
